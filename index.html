@@ -1,0 +1,637 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Multistream</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Multistream">
+<meta name="theme-color" content="#0e0e10">
+<style>
+  :root {
+    --bg: #0e0e10;
+    --panel: #18181b;
+    --panel-2: #1f1f23;
+    --line: #2f2f35;
+    --text: #efeff1;
+    --muted: #adadb8;
+    --accent: #9146ff;
+    --accent-2: #772ce8;
+    --live: #eb0400;
+    --ok: #00c853;
+    --gap: 6px;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+  button {
+    font: inherit;
+    color: var(--text);
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    min-height: 44px;
+    padding: 0 16px;
+    cursor: pointer;
+  }
+  button:active { filter: brightness(1.25); }
+  button.primary { background: var(--accent); border-color: var(--accent); font-weight: 600; }
+  button.primary:active { background: var(--accent-2); }
+  button.small { min-height: 34px; padding: 0 12px; font-size: 13px; }
+  button[disabled] { opacity: .5; cursor: default; }
+  input[type=text] {
+    font: inherit;
+    color: var(--text);
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    min-height: 44px;
+    padding: 0 12px;
+    width: 100%;
+  }
+  input[type=text]:focus { outline: 2px solid var(--accent); border-color: transparent; }
+  code {
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 2px 6px;
+    word-break: break-all;
+    font-size: 13px;
+  }
+
+  /* Kopfleiste */
+  header {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--line);
+    min-height: 56px;
+  }
+  header h1 { font-size: 17px; margin: 0; font-weight: 700; }
+  header .spacer { flex: 1; }
+  header .user { color: var(--muted); font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 30vw; }
+  .count { color: var(--muted); font-size: 14px; }
+
+  /* Hauptbereich */
+  main { flex: 1; min-height: 0; position: relative; }
+  #grid {
+    position: absolute; inset: 0;
+    display: grid;
+    gap: var(--gap);
+    padding: var(--gap);
+  }
+  .tile {
+    min-width: 0; min-height: 0;
+    display: flex; flex-direction: column;
+    background: #000;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .tile.audio { border-color: var(--accent); }
+  .tile-bar {
+    flex: none;
+    height: 38px;
+    display: flex; align-items: center; gap: 6px;
+    padding: 0 6px 0 10px;
+    background: var(--panel);
+  }
+  .tile-bar .name { flex: 1; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tile.audio .name::after { content: " · Ton an"; color: var(--accent); font-weight: 500; }
+  .tile-bar button { min-height: 30px; padding: 0 12px; font-size: 13px; }
+  .tile-player { flex: 1; min-height: 0; background: #000; }
+  .tile-player iframe { width: 100%; height: 100%; border: 0; display: block; }
+
+  /* Leerer Zustand / Setup */
+  .center {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    padding: 20px; overflow: auto;
+  }
+  .card {
+    width: 100%; max-width: 560px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 24px;
+  }
+  .card h2 { margin: 0 0 8px; font-size: 20px; }
+  .card p { color: var(--muted); margin: 8px 0; }
+  .card ol { color: var(--muted); padding-left: 20px; margin: 8px 0 16px; }
+  .card li { margin: 6px 0; }
+  .card .row { display: flex; gap: 8px; margin-top: 12px; }
+  .card .row > input { flex: 1; }
+  .error { color: #ff7a7a; margin-top: 10px; }
+
+  /* Schublade mit Live-Kanälen */
+  #drawer {
+    position: fixed; top: 0; bottom: 0; left: 0;
+    width: min(380px, 92vw);
+    background: var(--panel);
+    border-right: 1px solid var(--line);
+    transform: translateX(-102%);
+    transition: transform .22s ease;
+    z-index: 20;
+    display: flex; flex-direction: column;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+  }
+  #drawer.open { transform: none; }
+  #scrim {
+    position: fixed; inset: 0; background: rgba(0,0,0,.55);
+    opacity: 0; pointer-events: none; transition: opacity .22s; z-index: 15;
+  }
+  #scrim.open { opacity: 1; pointer-events: auto; }
+  .drawer-head {
+    flex: none; display: flex; align-items: center; gap: 8px;
+    padding: 10px 12px; border-bottom: 1px solid var(--line);
+  }
+  .drawer-head h2 { flex: 1; margin: 0; font-size: 17px; }
+  #list { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 6px; }
+  .item {
+    display: flex; gap: 10px; width: 100%;
+    text-align: left; align-items: stretch;
+    background: transparent; border: 1px solid transparent;
+    padding: 6px; min-height: 72px; border-radius: 10px; margin-bottom: 2px;
+  }
+  .item:active { background: var(--panel-2); }
+  .item.added { background: var(--panel-2); border-color: var(--accent); }
+  .item img { width: 112px; aspect-ratio: 16/9; object-fit: cover; border-radius: 6px; background: #000; flex: none; align-self: center; }
+  .item .meta { min-width: 0; flex: 1; display: flex; flex-direction: column; justify-content: center; }
+  .item .who { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .item .game, .item .title { color: var(--muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .item .viewers { font-size: 12px; color: var(--muted); }
+  .item .viewers b { color: var(--live); font-weight: 700; }
+  .item .state { align-self: center; font-size: 13px; color: var(--accent); white-space: nowrap; }
+  .hint { color: var(--muted); padding: 16px; text-align: center; }
+  .toast {
+    position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom)); transform: translateX(-50%);
+    background: var(--panel-2); border: 1px solid var(--line); padding: 10px 16px; border-radius: 10px;
+    z-index: 30; max-width: 90vw;
+  }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Multistream</h1>
+  <button id="btnLive" class="primary" hidden>Live-Kanäle</button>
+  <span class="count" id="count"></span>
+  <span class="spacer"></span>
+  <span class="user" id="userName"></span>
+  <button id="btnLogout" class="small" hidden>Abmelden</button>
+</header>
+
+<main>
+  <div id="grid"></div>
+
+  <!-- Einrichtung: Client ID -->
+  <div class="center" id="viewSetup" hidden>
+    <div class="card">
+      <h2>Einmalige Einrichtung</h2>
+      <p>Für den Twitch-Login brauchst du eine eigene (kostenlose) Twitch-Anwendung.</p>
+      <ol>
+        <li>Öffne <code>dev.twitch.tv/console/apps</code> und wähle „Anwendung registrieren“.</li>
+        <li>Trage als <b>OAuth-Weiterleitungs-URL</b> genau diese Adresse ein:<br><code id="redirectShow"></code></li>
+        <li>Kategorie „Website Integration“, Client-Typ „Public“. Dann „Erstellen“.</li>
+        <li>Kopiere die <b>Client-ID</b> und füge sie hier ein.</li>
+      </ol>
+      <div class="row">
+        <input type="text" id="clientIdInput" placeholder="Client-ID" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false">
+        <button class="primary" id="btnSaveClient">Speichern</button>
+      </div>
+      <div class="error" id="setupError" hidden></div>
+    </div>
+  </div>
+
+  <!-- Login -->
+  <div class="center" id="viewLogin" hidden>
+    <div class="card">
+      <h2>Mit Twitch verbinden</h2>
+      <p>Nach dem Login siehst du, welche deiner gefolgten Kanäle gerade live sind, und kannst sie mit einem Tipp nebeneinander ansehen. Die Seite liest nur deine Follow-Liste und kann nichts auf Twitch ändern.</p>
+      <div class="row"><button class="primary" id="btnLogin" style="flex:1">Mit Twitch anmelden</button></div>
+      <div class="error" id="loginError" hidden></div>
+      <p style="margin-top:18px"><button class="small" id="btnChangeClient">Client-ID ändern</button></p>
+    </div>
+  </div>
+
+  <!-- Eingeloggt, aber noch keine Streams gewählt -->
+  <div class="center" id="viewEmpty" hidden>
+    <div class="card" style="text-align:center">
+      <h2>Noch kein Stream ausgewählt</h2>
+      <p>Tippe auf „Live-Kanäle“ und wähle bis zu <span id="maxShow"></span> Streams aus.</p>
+      <div class="row" style="justify-content:center"><button class="primary" id="btnLive2">Live-Kanäle öffnen</button></div>
+    </div>
+  </div>
+</main>
+
+<div id="scrim"></div>
+<aside id="drawer" aria-label="Live-Kanäle">
+  <div class="drawer-head">
+    <h2>Live von dir gefolgt</h2>
+    <button class="small" id="btnRefresh">Aktualisieren</button>
+    <button class="small" id="btnClose">Schließen</button>
+  </div>
+  <div id="list"></div>
+</aside>
+
+<script src="https://embed.twitch.tv/embed/v1.js"></script>
+<script>
+(() => {
+  'use strict';
+
+  const MAX_STREAMS = 4;   // iPad-Safari schafft meist nur ca. 4 Live-Videos flüssig
+  const SCOPES = 'user:read:follows';
+  const REDIRECT = location.origin + location.pathname;
+  const PARENT = location.hostname;
+
+  // ---------- Speicher (kann in privaten Tabs fehlschlagen) ----------
+  const store = {
+    get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch {} },
+    del(k) { try { localStorage.removeItem(k); } catch {} },
+    sget(k) { try { return sessionStorage.getItem(k); } catch { return null; } },
+    sset(k, v) { try { sessionStorage.setItem(k, v); } catch {} },
+    sdel(k) { try { sessionStorage.removeItem(k); } catch {} },
+  };
+
+  const $ = id => document.getElementById(id);
+  const els = {
+    grid: $('grid'), list: $('list'), drawer: $('drawer'), scrim: $('scrim'),
+    viewSetup: $('viewSetup'), viewLogin: $('viewLogin'), viewEmpty: $('viewEmpty'),
+    btnLive: $('btnLive'), btnLogout: $('btnLogout'), userName: $('userName'), count: $('count'),
+    clientIdInput: $('clientIdInput'), setupError: $('setupError'), loginError: $('loginError'),
+  };
+  $('redirectShow').textContent = REDIRECT;
+  $('maxShow').textContent = MAX_STREAMS;
+
+  // ---------- Zustand ----------
+  const state = {
+    clientId: store.get('ms.clientId') || '',
+    token: store.get('ms.token') || '',
+    userId: store.get('ms.userId') || '',
+    login: store.get('ms.login') || '',
+    streams: [],          // Kanalnamen (klein geschrieben), Reihenfolge = Anzeige
+    audio: null,          // Kanal mit Ton
+    live: [],             // letzte Antwort der Follow-API
+    players: new Map(),   // kanal -> { tile, player }
+  };
+  try { state.streams = JSON.parse(store.get('ms.streams') || '[]').filter(isLogin).slice(0, MAX_STREAMS); } catch {}
+
+  function isLogin(s) { return typeof s === 'string' && /^[a-z0-9_]{3,25}$/.test(s); }
+  function saveStreams() { store.set('ms.streams', JSON.stringify(state.streams)); }
+
+  let toastTimer;
+  function toast(msg) {
+    let t = document.querySelector('.toast');
+    if (!t) { t = document.createElement('div'); t.className = 'toast'; document.body.appendChild(t); }
+    t.textContent = msg;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => t.remove(), 3500);
+  }
+
+  // ---------- Ansichten ----------
+  function showView() {
+    const loggedIn = !!state.token;
+    els.viewSetup.hidden = !!state.clientId;
+    els.viewLogin.hidden = !state.clientId || loggedIn;
+    els.viewEmpty.hidden = !loggedIn || state.streams.length > 0;
+    els.btnLive.hidden = !loggedIn;
+    els.btnLogout.hidden = !loggedIn;
+    els.userName.textContent = loggedIn ? state.login : '';
+    els.count.textContent = loggedIn && state.streams.length ? state.streams.length + ' / ' + MAX_STREAMS : '';
+    els.grid.hidden = !loggedIn;
+  }
+
+  // ---------- Login (Implicit Grant, läuft komplett im Browser) ----------
+  function randomState() {
+    const a = new Uint8Array(16);
+    crypto.getRandomValues(a);
+    return Array.from(a, b => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  function startLogin() {
+    els.loginError.hidden = true;
+    const s = randomState();
+    store.sset('ms.oauthState', s);
+    const url = 'https://id.twitch.tv/oauth2/authorize?' + new URLSearchParams({
+      client_id: state.clientId,
+      redirect_uri: REDIRECT,
+      response_type: 'token',
+      scope: SCOPES,
+      state: s,
+      force_verify: 'false',
+    });
+    location.href = url;
+  }
+
+  function showLoginError(msg) {
+    els.loginError.textContent = msg;
+    els.loginError.hidden = false;
+  }
+
+  async function handleRedirect() {
+    const qs = new URLSearchParams(location.search);
+    const hash = new URLSearchParams(location.hash.replace(/^#/, ''));
+    const hasToken = hash.has('access_token');
+    const hasError = qs.has('error');
+    if (!hasToken && !hasError) return;
+
+    const expected = store.sget('ms.oauthState');
+    store.sdel('ms.oauthState');
+    const returned = hasToken ? hash.get('state') : qs.get('state');
+    history.replaceState(null, '', location.pathname);
+
+    if (hasError) {
+      showLoginError('Twitch hat den Login abgelehnt: ' + (qs.get('error_description') || qs.get('error')));
+      return;
+    }
+    if (!expected || returned !== expected) {
+      showLoginError('Login abgebrochen (ungültiger Status). Bitte noch einmal versuchen.');
+      return;
+    }
+    await adoptToken(hash.get('access_token'));
+  }
+
+  async function adoptToken(token) {
+    try {
+      const r = await fetch('https://id.twitch.tv/oauth2/validate', { headers: { Authorization: 'OAuth ' + token } });
+      if (!r.ok) throw new Error('Token ungültig (' + r.status + ')');
+      const v = await r.json();
+      if (v.client_id !== state.clientId) throw new Error('Das Token gehört zu einer anderen Client-ID.');
+      if (!v.scopes || !v.scopes.includes('user:read:follows')) throw new Error('Die Berechtigung zum Lesen deiner Follows fehlt.');
+      state.token = token; state.userId = v.user_id; state.login = v.login;
+      store.set('ms.token', token); store.set('ms.userId', v.user_id); store.set('ms.login', v.login);
+    } catch (e) {
+      showLoginError(e.message || String(e));
+    }
+  }
+
+  function logout(msg) {
+    state.token = ''; state.userId = ''; state.login = ''; state.live = [];
+    ['ms.token', 'ms.userId', 'ms.login'].forEach(store.del);
+    for (const p of state.players.values()) p.tile.remove();   // Player beenden
+    state.players.clear();
+    state.audio = null;
+    closeDrawer();
+    showView();
+    if (msg) { showLoginError(msg); }
+  }
+
+  // ---------- Twitch API ----------
+  async function helix(path) {
+    const r = await fetch('https://api.twitch.tv/helix/' + path, {
+      headers: { Authorization: 'Bearer ' + state.token, 'Client-Id': state.clientId },
+    });
+    if (r.status === 401) {
+      const err = new Error('Die Anmeldung ist abgelaufen. Bitte melde dich neu an.');
+      err.auth = true;
+      throw err;
+    }
+    if (!r.ok) throw new Error('Twitch-Fehler ' + r.status);
+    return r.json();
+  }
+
+  async function loadLive() {
+    els.list.replaceChildren(textNode('div', 'hint', 'Lade …'));
+    try {
+      let all = [], cursor = '';
+      for (let i = 0; i < 5; i++) {   // bis zu 500 Live-Kanäle
+        const d = await helix('streams/followed?first=100&user_id=' + encodeURIComponent(state.userId) + (cursor ? '&after=' + encodeURIComponent(cursor) : ''));
+        all = all.concat(d.data || []);
+        cursor = d.pagination && d.pagination.cursor;
+        if (!cursor) break;
+      }
+      state.live = all;
+      renderList();
+    } catch (e) {
+      if (e.auth) { logout(e.message); return; }
+      els.list.replaceChildren(textNode('div', 'hint', e.message || 'Fehler beim Laden.'));
+    }
+  }
+
+  // ---------- Liste der Live-Kanäle ----------
+  function textNode(tag, cls, text) {
+    const n = document.createElement(tag);
+    if (cls) n.className = cls;
+    n.textContent = text;
+    return n;
+  }
+
+  function fmt(n) { return new Intl.NumberFormat('de-CH').format(n); }
+
+  function renderList() {
+    if (!state.live.length) {
+      els.list.replaceChildren(textNode('div', 'hint', 'Gerade ist keiner deiner gefolgten Kanäle live.'));
+      return;
+    }
+    const frag = document.createDocumentFragment();
+    for (const s of state.live) {
+      const login = String(s.user_login || '').toLowerCase();
+      if (!isLogin(login)) continue;
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'item' + (state.streams.includes(login) ? ' added' : '');
+
+      const img = document.createElement('img');
+      img.alt = '';
+      img.loading = 'lazy';
+      const th = String(s.thumbnail_url || '').replace('{width}', '224').replace('{height}', '126');
+      if (/^https:\/\//.test(th)) img.src = th;
+
+      const meta = document.createElement('div');
+      meta.className = 'meta';
+      meta.append(
+        textNode('div', 'who', s.user_name || login),
+        textNode('div', 'game', s.game_name || ''),
+        textNode('div', 'title', s.title || '')
+      );
+      const v = document.createElement('div');
+      v.className = 'viewers';
+      const dot = document.createElement('b'); dot.textContent = '● ';
+      v.append(dot, fmt(s.viewer_count || 0) + ' Zuschauer');
+      meta.append(v);
+
+      const st = textNode('div', 'state', state.streams.includes(login) ? 'Entfernen' : 'Hinzufügen');
+      b.append(img, meta, st);
+      b.addEventListener('click', () => { toggleStream(login); });
+      frag.appendChild(b);
+    }
+    els.list.replaceChildren(frag);
+  }
+
+  function openDrawer() { els.drawer.classList.add('open'); els.scrim.classList.add('open'); loadLive(); }
+  function closeDrawer() { els.drawer.classList.remove('open'); els.scrim.classList.remove('open'); }
+
+  // ---------- Streams verwalten ----------
+  function toggleStream(login) {
+    if (state.streams.includes(login)) {
+      removeStream(login);
+    } else {
+      if (state.streams.length >= MAX_STREAMS) { toast('Maximal ' + MAX_STREAMS + ' Streams gleichzeitig.'); return; }
+      state.streams.push(login);
+      saveStreams();
+      syncTiles();
+    }
+    renderList();
+  }
+
+  function removeStream(login) {
+    state.streams = state.streams.filter(s => s !== login);
+    if (state.audio === login) state.audio = null;
+    saveStreams();
+    syncTiles();
+    renderList();
+  }
+
+  function setAudio(login) {
+    state.audio = state.audio === login ? null : login;
+    for (const [name, p] of state.players) {
+      const on = name === state.audio;
+      try { p.player && p.player.setMuted(!on); if (on) p.player.setVolume(1); } catch {}
+      p.tile.classList.toggle('audio', on);
+      p.audioBtn.textContent = on ? 'Ton aus' : 'Ton an';
+    }
+  }
+
+  function makeTile(login) {
+    const tile = document.createElement('div');
+    tile.className = 'tile';
+    const bar = document.createElement('div');
+    bar.className = 'tile-bar';
+    const name = textNode('div', 'name', login);
+    const audioBtn = textNode('button', '', 'Ton an');
+    audioBtn.type = 'button';
+    audioBtn.addEventListener('click', () => setAudio(login));
+    const closeBtn = textNode('button', '', 'Entfernen');
+    closeBtn.type = 'button';
+    closeBtn.addEventListener('click', () => removeStream(login));
+    bar.append(name, audioBtn, closeBtn);
+    const host = document.createElement('div');
+    host.className = 'tile-player';
+    tile.append(bar, host);
+
+    const entry = { tile, host, audioBtn, player: null };
+    createPlayer(entry, login);
+    return entry;
+  }
+
+  function createPlayer(entry, login) {
+    if (!window.Twitch || !window.Twitch.Player) {
+      entry.host.textContent = '';
+      entry.host.appendChild(textNode('div', 'hint', 'Der Twitch-Player konnte nicht geladen werden.'));
+      return;
+    }
+    entry.player = new Twitch.Player(entry.host, {
+      channel: login,
+      parent: [PARENT],
+      width: '100%',
+      height: '100%',
+      autoplay: true,
+      muted: true,
+    });
+  }
+
+  function syncTiles() {
+    // entfernte Tiles abbauen
+    for (const [name, p] of state.players) {
+      if (!state.streams.includes(name)) { p.tile.remove(); state.players.delete(name); }
+    }
+    // neue anlegen (bestehende bleiben unberührt, damit nichts neu lädt)
+    for (const name of state.streams) {
+      if (!state.players.has(name)) {
+        const entry = makeTile(name);
+        state.players.set(name, entry);
+        els.grid.appendChild(entry.tile);
+      }
+    }
+    // Reihenfolge angleichen
+    state.streams.forEach((name, i) => {
+      const t = state.players.get(name).tile;
+      if (els.grid.children[i] !== t) els.grid.insertBefore(t, els.grid.children[i] || null);
+    });
+    layout();
+    showView();
+  }
+
+  // ---------- Raster: wählt die Spaltenzahl, bei der die Videos am größten werden ----------
+  function layout() {
+    const n = state.streams.length;
+    if (!n) { els.grid.style.gridTemplateColumns = ''; els.grid.style.gridTemplateRows = ''; return; }
+    const gap = 6;
+    const W = els.grid.clientWidth - gap * 2;
+    const H = els.grid.clientHeight - gap * 2;
+    const BAR = 38;
+    // Twitch verlangt mindestens 400x300 px pro Player. Layouts, die das erfüllen, werden bevorzugt.
+    let best = 1, bestScale = -1, bestOk = false;
+    for (let c = 1; c <= n; c++) {
+      const rows = Math.ceil(n / c);
+      const tw = (W - gap * (c - 1)) / c;
+      const th = (H - gap * (rows - 1)) / rows - BAR;
+      const scale = Math.min(tw / 16, th / 9);
+      const ok = tw >= 400 && th >= 300;
+      if ((ok && !bestOk) || (ok === bestOk && scale > bestScale)) { bestScale = scale; best = c; bestOk = ok; }
+    }
+    const rows = Math.ceil(n / best);
+    els.grid.style.gridTemplateColumns = 'repeat(' + best + ', minmax(0, 1fr))';
+    els.grid.style.gridTemplateRows = 'repeat(' + rows + ', minmax(0, 1fr))';
+  }
+
+  // ---------- Ereignisse ----------
+  $('btnSaveClient').addEventListener('click', () => {
+    const v = els.clientIdInput.value.trim();
+    if (!/^[a-z0-9]{20,40}$/i.test(v)) {
+      els.setupError.textContent = 'Das sieht nicht wie eine Twitch-Client-ID aus (Buchstaben und Ziffern, ca. 30 Zeichen).';
+      els.setupError.hidden = false;
+      return;
+    }
+    els.setupError.hidden = true;
+    state.clientId = v;
+    store.set('ms.clientId', v);
+    showView();
+  });
+  $('btnLogin').addEventListener('click', startLogin);
+  $('btnChangeClient').addEventListener('click', () => {
+    state.clientId = '';
+    store.del('ms.clientId');
+    els.clientIdInput.value = '';
+    showView();
+  });
+  els.btnLogout.addEventListener('click', () => logout());
+  els.btnLive.addEventListener('click', openDrawer);
+  $('btnLive2').addEventListener('click', openDrawer);
+  $('btnClose').addEventListener('click', closeDrawer);
+  $('btnRefresh').addEventListener('click', loadLive);
+  els.scrim.addEventListener('click', closeDrawer);
+  window.addEventListener('resize', layout);
+  window.addEventListener('orientationchange', () => setTimeout(layout, 250));
+  if ('ResizeObserver' in window) new ResizeObserver(layout).observe(els.grid);
+
+  // Live-Liste im Hintergrund frisch halten, solange die Schublade offen ist
+  setInterval(() => { if (state.token && els.drawer.classList.contains('open')) loadLive(); }, 60000);
+
+  // ---------- Start ----------
+  (async function init() {
+    await handleRedirect();
+    showView();
+    if (state.token) syncTiles();
+  })();
+})();
+</script>
+</body>
+</html>
